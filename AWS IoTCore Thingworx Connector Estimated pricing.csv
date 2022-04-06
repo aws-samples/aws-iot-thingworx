@@ -1,0 +1,18 @@
+﻿Group hierarchy,Region,Description,Service,Upfront,Monthly,First 12 months total,Currency,Configuration summary
+AWS IoT Core Thingworx Connector,EU (Ireland),Redis,Amazon ElastiCache,0,118.26,1419.12,USD,Nodes ( 9 instances of type Redis  Standard  cache t2.micro  OnDemand )
+AWS IoT Core Thingworx Connector,EU (Ireland),,Amazon Virtual Private Cloud (VPC),0,35.52,426.24,USD,Number of NAT Gateways (1)
+AWS IoT Core Thingworx Connector,EU (Ireland),,AWS Fargate,0,17.77,213.24,USD,"Operating system (Linux), Average duration (30 days), Amount of ephemeral storage allocated for Amazon ECS (20 GB), Number of tasks or pods (1 per month), Amount of memory allocated (1 GB)"
+AWS IoT Core Thingworx Connector,EU (Ireland),MessageRouter,AWS Lambda,0,3.66,43.92,USD,"Architecture (x86), Architecture (x86), Number of requests (1 per minute)"
+AWS IoT Core Thingworx Connector,EU (Ireland),DataFetcher,AWS Lambda,0,7.3,87.60,USD,"Architecture (x86), Architecture (x86), Number of requests (1 per hour)"
+AWS IoT Core Thingworx Connector,EU (Ireland),,Amazon Kinesis Data Streams,0,42.16,505.92,USD,"Number of records (400 per second), Number of Consumer Applications (8)"
+AWS IoT Core Thingworx Connector,EU (Ireland),,MQTT,0,60.910000000000004,730.92,USD,"Number of devices (MQTT) (1000), Average size of each message (1 KB), Average size of each record (1 KB), Average size of each record (1 KB), Average number of actions executed per rule (1), Average size of each message (1 KB), Number of messages for a device (43200), Number of Shadow operations for a device (1000), Number of rules triggered (43200)"
+AWS IoT Core Thingworx Connector,EU (Ireland),,AWS CodeBuild,0,0.01,0.12,USD,"Number of builds in a month (1), Average build duration (minutes) (1), Operating system (Linux), Compute instance type (general1.small)"
+AWS IoT Core Thingworx Connector,EU (Ireland),,AWS AppConfig,0,8.76,105.12,USD,"Targets (1), Application configurations (1), Frequency of GetConfiguration API requests (1000 per minute), Frequency of configurations received (1 per month)"
+AWS IoT Core Thingworx Connector,EU (Ireland),,Amazon Elastic Container Registry,0,0.1,1.20,USD,"Data transfer cost (0), Amount of data stored (1 GB per month)"
+AWS IoT Core Thingworx Connector,EU (Ireland),,Amazon CloudWatch,0,1.9745009999999998,23.69,USD,"Number of Metrics (includes detailed and custom metrics) (4), Standard Logs: Data Ingested (1 GB), Number of Custom/Cross-account events (1), Number of Standard Resolution Alarm Metrics (2)"
+AWS IoT Core Thingworx Connector,EU (Ireland),,Standard topics,0,0,0.00,USD,"Requests (100 per month), EMAIL/EMAIL-JSON Notifications (100 per month)"
+
+
+
+Acknowledgement
+"* AWS Pricing Calculator provides only an estimate of your AWS fees and doesn't include any taxes that might apply. Your actual fees depend on a variety of factors, including your actual usage of AWS services."

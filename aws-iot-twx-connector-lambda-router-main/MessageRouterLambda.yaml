@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: Redirects Kinesis Stream messages to thingworx client connector app instances.
+Resources:
+  MessageRouterLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: pl.ttpsc.MessageRouterLambda
+      Runtime: java11
+      CodeUri: .
+      Description: Redirects Kinesis Stream messages to thingworx client connector app instances.
+      MemorySize: 512
+      Timeout: 70
+      Role: 'arn:aws:iam::703259868246:role/messageRouterLambdaRole'
+      Events:
+        Kinesis1:
+          Type: Kinesis
+          Properties:
+            Stream:
+              'Fn::GetAtt':
+                - KinesisStream1
+                - Arn
+            StartingPosition: LATEST
+            BatchSize: 2000
+      VpcConfig:
+        SecurityGroupIds:
+          - sg-0c64df88e50961f9a
+        SubnetIds:
+          - subnet-0cd1f7929876d33cf
+          - subnet-0172dcc5c9d6dd6bf
+          - subnet-00a12154ed0dafc4c
+      Environment:
+        Variables:
+          ENVIRONMENT: PROD
+          LOG_LEVEL: DEBUG
+  KinesisStream1:
+    Type: 'AWS::Kinesis::Stream'
+    Properties:
+      ShardCount: 1

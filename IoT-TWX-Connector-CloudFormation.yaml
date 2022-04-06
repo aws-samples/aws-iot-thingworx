@@ -1,0 +1,915 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS IoT TWX Connector
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'General configuration'
+      Parameters:
+      - Cidr
+      - S3Bucket
+      - S3Folder
+      - RedisNodeType
+      - ThingworxServerUrl
+      - ThingworxApiKey
+      - FargateCPU
+      - FargateRAM
+      - NumberOfThingsPerInstance
+    - Label:
+        default: 'IoT topics configuration'
+      Parameters:
+      - MeasurementTopicName
+    - Label:
+        default: 'MessageRouter Lambda configuration'
+      Parameters:
+      - MessageRouterLambdaZipFile
+      - MessageRouterLambdaMemory
+      - MessageRouterLambdaTimeout
+      - MessageRouterLambdaBatchSize
+    - Label:
+        default: 'ThingworxDataFetcher Lambda configuration'
+      Parameters:
+      - ThingworxDataFetcherLambdaZipFile
+      - ThingworxDataFetcherLambdaMemory
+      - ThingworxDataFetcherLambdaTimeout
+    - Label:
+        default: 'Debug config'
+      Parameters:
+      - LogLevel
+      - Environment
+
+Parameters:
+  Cidr:
+    Description: VPC CIDR range
+    Type: String
+    Default: "10.0.0.0/24"
+  LogLevel:
+    Description: 'Log level for Lambda functions'
+    Type: String
+    Default: ERROR
+    AllowedValues:
+      - INFO
+      - DEBUG
+      - WARN
+      - ERROR
+  Environment:
+    Description: "Environment"
+    Type: String
+    Default: PROD
+    AllowedValues:
+      - PROD
+  MessageRouterLambdaZipFile:
+    Description: "S3 key pointing the DataIngestRouter Lambda .zip package"
+    Type: String
+    Default: MessageRouterLambda.zip
+  MessageRouterLambdaMemory:
+    Description: "Memory for DataIngestRouter Lambda"
+    Type: Number
+    Default: 768
+    MinValue: 512
+    MaxValue: 10240
+  MessageRouterLambdaTimeout:
+    Description: "Timeout for DataIngestRouter Lambda"
+    Type: Number
+    Default: 900
+  MessageRouterLambdaBatchSize:
+    Description: "MessageRouter Lambda trigger batch size"
+    Type: Number
+    Default: 2000
+  S3Bucket:
+    Description: "the name of bucket containing all required files for deploying the stack into AWS cloud"
+    Type: String
+    Default: S3-BUCKET-NAME
+  S3Folder:
+    Description: "S3 folder with software .zip packages"
+    Type: String
+    Default: deploy
+  ThingworxDataFetcherLambdaZipFile:
+    Description: "S3 key pointing the ThingworxDataFetcher Lambda .zip package"
+    Type: String
+    Default: ThingworxDataFetcherLambda.zip
+  ThingworxDataFetcherLambdaMemory:
+    Description: "Memory for DataIngestRouter Lambda"
+    Type: Number
+    Default: 1024
+    MinValue: 128
+    MaxValue: 10240
+  ThingworxDataFetcherLambdaTimeout:
+    Description: "Timeout for DataIngestRouter Lambda"
+    Type: Number
+    Default: 900
+  RedisNodeType:
+    Description: "Redis node type"
+    Type: String
+    Default: cache.t2.micro
+  MeasurementTopicName:
+    Description: "IoT topic name where devices send measurement payload"
+    Type: String
+    Default: "/sample/topic"
+  ThingworxServerUrl:
+    Description: "Thingworx server url"
+    Type: String
+    Default: "http://your-twx-hostname/Thingworx/WS"
+  ThingworxApiKey:
+    Description: "Thingworx API key"
+    Type: String
+    Default: "your-api-key"
+  NumberOfThingsPerInstance:
+    Description: "Number of Things per instance"
+    Type: Number
+    Default: 1000
+  FargateCPU:
+    Description: "The number of cpu units used by the task. The value determines the range of valid values for the FargateRAM parameter. 256 respresents 0.25 vCPU"
+    Type: String
+    Default: 512
+    AllowedValues:
+      - 256
+      - 512
+      - 1024
+      - 2048
+      - 4096
+  FargateRAM:
+    Description: "The amount (in MB) of memory used by the task. The value determines the range of valid values for the FargateCPU parameter."
+    Type: String
+    Default: 1024
+
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref Cidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value: "TWX Connector VPC"
+      - Key: Environment
+        Value: !Ref Environment
+  IG:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: "TWXConnector-IG"
+      - Key: Environment
+        Value: !Ref Environment
+  
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IG
+  
+  PublicSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs ''
+      CidrBlock: !Select [ 0, !Cidr [ !GetAtt VPC.CidrBlock, 6, 4 ]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: "TWXConnector-Public1"
+        - Key: Environment
+          Value: !Ref Environment
+  
+  PrivateSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs ''
+      CidrBlock: !Select [ 3, !Cidr [ !GetAtt VPC.CidrBlock, 6, 4 ]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: "TWXConnector-Private1"
+        - Key: Environment
+          Value: !Ref Environment
+  
+  PrivateSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select 
+        - 1
+        - !GetAZs ''
+      CidrBlock: !Select [ 4, !Cidr [ !GetAtt VPC.CidrBlock, 6, 4 ]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: "TWXConnector-Private2"
+        - Key: Environment
+          Value: !Ref Environment
+  
+  PrivateSubnet3:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select 
+        - 2
+        - !GetAZs ''
+      CidrBlock: !Select [ 5, !Cidr [ !GetAtt VPC.CidrBlock, 6, 4 ]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: "TWXConnector-Private3"
+        - Key: Environment
+          Value: !Ref Environment
+  
+  NATGatewayEIP:
+    Type: 'AWS::EC2::EIP'
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: "TWXConnector-NATgw-IP"
+        - Key: Environment
+          Value: !Ref Environment
+ 
+  NATGateway:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: "TWXConnector-NATgw"
+        - Key: Environment
+          Value: !Ref Environment
+  
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: "TWXConnector-public-rt"
+        - Key: Environment
+          Value: !Ref Environment
+  
+  DefaultPublicRoute:
+    Type: 'AWS::EC2::Route'
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IG
+  
+  PublicSubnet1RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PrivateRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: "TWXConnector-private-rt"
+        - Key: Environment
+          Value: !Ref Environment
+  
+  DefaultPrivateRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+  
+  PrivateSubnet1RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+  
+  PrivateSubnet2RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
+
+  PrivateSubnet3RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet3
+##################################### NETWORK END #####################################################
+  
+  KinesisStream: 
+    Type: AWS::Kinesis::Stream 
+    Properties: 
+      Name: IoTCore2ThingworxDataStream
+      RetentionPeriodHours: 24
+      StreamModeDetails:
+        StreamMode: ON_DEMAND
+
+  IoTTopicRuleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: IoTTopicRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - iot.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: IoTTopicRulePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              Effect: Allow
+              Action:
+                - kinesis:PutRecord
+              Resource: !GetAtt KinesisStream.Arn
+
+  IoTTopicRule:   
+    Type: AWS::IoT::TopicRule
+    Properties:
+      RuleName: MeasurementPayload
+      TopicRulePayload:
+        Description: "Send device measurement payload to Kinesis Data Stream"
+        AwsIotSqlVersion: '2016-03-23'
+        RuleDisabled: false
+        Sql: !Sub "SELECT * FROM '${MeasurementTopicName}'"
+        Actions:
+          - Kinesis:
+              PartitionKey: ${clientid()}
+              RoleArn: !GetAtt IoTTopicRuleRole.Arn
+              StreamName: !Ref KinesisStream
+  
+  IoTTopicRule2:   
+    Type: AWS::IoT::TopicRule
+    Properties:
+      RuleName: StatusRule
+      TopicRulePayload:
+        Description: "connected/disconnected status rule"
+        AwsIotSqlVersion: '2016-03-23'
+        RuleDisabled: false
+        Sql: "SELECT \"k45jCZhDCTreg5cwavwvW7Dxc2debf\" as QvFBHYUtxaE27ECGq5aY5xWdDmY3Bn, * FROM '$aws/events/presence/#'"
+        Actions:
+          - Kinesis:
+              PartitionKey: ${clientid()}
+              RoleArn: !GetAtt IoTTopicRuleRole.Arn
+              StreamName: !Ref KinesisStream
+  
+  MessageRouterLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: MessageRouterLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaKinesisExecutionRole'
+      Policies:
+        - PolicyName: AppConfigAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - appconfig:GetConfiguration
+                Resource: '*'
+  
+  ThingworxDataFetcherLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ThingworxDataFetcherLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+        - 'arn:aws:iam::aws:policy/AmazonECS_FullAccess'
+      Policies:
+        - PolicyName: AppConfigAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - appconfig:GetConfiguration
+                Resource: '*'
+  
+  TWXConnectorSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: "TWX Connector Security Group"
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: "TWXConnector-sg"
+        - Key: Environment
+          Value: !Ref Environment
+
+  SelfReferenceSecurityGroupinbound:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !Ref TWXConnectorSecurityGroup
+      IpProtocol: '-1'
+      SourceSecurityGroupId: !Ref TWXConnectorSecurityGroup
+      Description: "Allow all traffic inside Security Group"
+
+  MessageRouterLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: MessageRouterLambda
+      Runtime: java11
+      Role: !GetAtt MessageRouterLambdaRole.Arn
+      Handler: pl.ttpsc.MessageRouterLambda
+      Timeout: !Ref MessageRouterLambdaTimeout
+      Description: 'Redirects messages from Kinesis to Redis'
+      MemorySize: !Ref MessageRouterLambdaMemory
+      Environment:
+        Variables:
+          LOG_LEVEL: !Ref LogLevel
+          ENVIRONMENT: !Ref Environment
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref TWXConnectorSecurityGroup
+        SubnetIds: #!Ref Subnets #!Join [",",[!Ref Subnets]]
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+          - !Ref PrivateSubnet3
+      Code:
+        S3Bucket: !Ref S3Bucket
+        S3Key: !Sub ${S3Folder}/${MessageRouterLambdaZipFile}
+  
+  MessageRouterLambdaTrigger:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties: 
+      BatchSize: !Ref MessageRouterLambdaBatchSize
+      Enabled: True
+      EventSourceArn: !GetAtt KinesisStream.Arn
+      FunctionName: !Ref MessageRouterLambda
+      #MaximumBatchingWindowInSeconds: Integer #The maximum amount of time, in seconds, that Lambda spends gathering records before invoking the function
+      ParallelizationFactor: 1
+      StartingPosition: LATEST
+  
+  ThingworxDataFetcherLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ThingworxDataFetcherLambda
+      Runtime: java11
+      Role: !GetAtt ThingworxDataFetcherLambdaRole.Arn
+      Handler: pl.ttpsc.ThingworxDataFetcherLambda
+      Timeout: !Ref ThingworxDataFetcherLambdaTimeout
+      Description: 'Lambda function reads Things from Thingworx, put them into Redis and launch new Fargate tasks each running an instance of Thingworx client connector application'
+      MemorySize: !Ref ThingworxDataFetcherLambdaMemory
+      Environment:
+        Variables:
+          LOG_LEVEL: !Ref LogLevel
+          ENVIRONMENT: !Ref Environment
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref TWXConnectorSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+          - !Ref PrivateSubnet3
+      Code:
+        S3Bucket: !Ref S3Bucket
+        S3Key: !Sub ${S3Folder}/${ThingworxDataFetcherLambdaZipFile}
+  
+  ThingworxDataFetcherTrigger:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "Scheduled trigger for ThingworxDataFetcher lambda function"
+      Name: ThingworxDataFetcherLambdaTrigger
+      ScheduleExpression: "rate(1 hour)"
+      State: ENABLED 
+      Targets: 
+        - Arn: !GetAtt ThingworxDataFetcherLambda.Arn
+          Id: "TargetFunction"
+
+  PermissionForEventsToInvokeLambda: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !Ref ThingworxDataFetcherLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt ThingworxDataFetcherTrigger.Arn
+
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      CacheSubnetGroupName: "TWXConnector-RedisSubnetGroup"
+      Description: "Subnet Group for Redis Replication Group"
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+
+  RedisLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /TWXConnector/redis/
+      RetentionInDays: 7
+
+  Redis:
+    Type: AWS::ElastiCache::ReplicationGroup
+    Properties:
+      ReplicationGroupId: "twxconnector-rediscluster"
+      AutomaticFailoverEnabled: true
+      MultiAZEnabled: true
+      CacheNodeType: !Ref RedisNodeType
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      LogDeliveryConfigurations:
+        - DestinationDetails:
+            CloudWatchLogsDetails:
+              LogGroup: !Ref RedisLogGroup
+          DestinationType: cloudwatch-logs
+          LogFormat: text
+          LogType: slow-log
+      Engine: redis
+      EngineVersion: 6.x
+      NumNodeGroups: 3 #parmeter number of shards
+      ReplicasPerNodeGroup: 2 #parameter repicas per shard
+      Port: 6379
+      PreferredMaintenanceWindow: mon:04:30-mon:05:30
+      ReplicationGroupDescription: "Redis Cluster for TWX Connector"
+      SecurityGroupIds: 
+        - !Ref TWXConnectorSecurityGroup
+      SnapshotRetentionLimit: 1
+      SnapshotWindow: 03:30-04:30
+  
+  AppConfigApplication:
+    Type: AWS::AppConfig::Application
+    Properties: 
+      Description: Thingworx IoT AWS Connector application
+      Name: aws-iot-twx-connector-config
+  
+  AppConfigEnvironment:
+    Type: AWS::AppConfig::Environment
+    Properties: 
+      ApplicationId: !Ref AppConfigApplication
+      Name: !Ref Environment
+  
+  AppConfigConfigurationProfile:
+    Type: AWS::AppConfig::ConfigurationProfile
+    Properties: 
+      ApplicationId: !Ref AppConfigApplication
+      LocationUri: hosted
+      Name: !Ref Environment
+
+  AppConfigData:
+    Type: AWS::AppConfig::HostedConfigurationVersion
+    Properties: 
+      ApplicationId: !Ref AppConfigApplication
+      ConfigurationProfileId: !Ref AppConfigConfigurationProfile
+      ContentType: application/x-yaml
+      Content: !Sub |
+        redis:
+          configurationEndpoint: ${Redis.ConfigurationEndPoint.Address}:${Redis.ConfigurationEndPoint.Port}
+        thingworx:
+          serverUrl: ${ThingworxServerUrl}
+          apiKey: ${ThingworxApiKey}
+          ignoreSSLError: true
+          reconnectInterval: 4
+          serviceCallTimeoutInMillis: 5000
+          processScanRequestTimeoutInMillis: 15000
+          waitForConnectionTimeoutInMillis: 8000
+        messageRouterLambda:
+          clientStatusMessageIndicator:
+            name: QvFBHYUtxaE27ECGq5aY5xWdDmY3Bn
+            value: k45jCZhDCTreg5cwavwvW7Dxc2debf
+        thingworxDataFetcherLambda:
+          thingworxConfig:
+            getEntityList:
+              timeOut: 600000
+              awsTags: AWS_CONNECTED_THING:AWS_CONNECTED_THING
+            awsBoundPropertyCategoryName: AWSConnectorBound
+          fargateConfig:
+            securityGroups: 
+              - ${TWXConnectorSecurityGroup.GroupId}
+            subnets:
+              - ${PrivateSubnet1}
+              - ${PrivateSubnet2}
+              - ${PrivateSubnet3}
+            taskDefinition: twx-cloud-connector-task
+            cluster: TWX-Connector-Fargate-Cluster
+            containerName: twx-cloud-connector-container
+          numberOfThingsPerInstance: ${NumberOfThingsPerInstance}
+          twxCloudConnectorAppInstanceListNameInRedis: connectorApplicationInstances
+          twxCloudConnectorAppInstanceNamePrefix: AwsThingworxConnector
+        thingworxClientConnectorSpringApp:
+          twxCloudConnectorInstanceNameEnvironmentVariableIndicator: THINGWORX_CONNECTOR_APP_INSTANCE_NAME
+          messageRouterLambdaPayloadStructure:
+            thingStatusIndicator: thingStatus
+            thingClientIdIndicator: awsclientId
+            thingDeviceShadowIndicator: awsDeviceShadow
+            thingTelemetryPayloadIndicator: payload
+            thingNameIndicator: thingName
+            thingModelIndicator: thingModel
+            modelParametersDataTypeIndicator: type
+            instanceIndicator: thingConnectorInstance
+          thingConnectionStatuses:
+            connected: connected
+            disconnected: disconnected
+        
+  AppConfigDeploymentStrategy:
+    Type: AWS::AppConfig::DeploymentStrategy
+    Properties: 
+      DeploymentDurationInMinutes: 2
+      FinalBakeTimeInMinutes: 2
+      GrowthFactor: 100
+      Name: TWXConnector-DeploymentStrategy
+      ReplicateTo: NONE
+  
+  AppConfigDeployment:
+    Type: AWS::AppConfig::Deployment
+    Properties: 
+      ApplicationId: !Ref AppConfigApplication
+      ConfigurationProfileId: !Ref AppConfigConfigurationProfile
+      ConfigurationVersion: !Ref AppConfigData
+      DeploymentStrategyId: !Ref AppConfigDeploymentStrategy
+      Description: "Deployment of TWX IoT AWS Connector application configuration"
+      EnvironmentId: !Ref AppConfigEnvironment
+
+#---------------------
+# ECR & CodeBuild
+#---------------------
+  ECRRepository: 
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: "ttpsc.pl_twx-cloud-connector"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+  
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: TWXConnectorCodeBuildRole
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: codebuild.amazonaws.com
+        Version: '2012-10-17'
+      Path: /
+      Policies:
+        - PolicyName: CodeBuildAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                - 'logs:CreateLogGroup'
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+                - 's3:PutObject'
+                - 's3:GetObject'
+                - 's3:GetObjectVersion'
+                - 's3:GetBucketAcl'
+                - 's3:GetBucketLocation'
+                - 's3:ListBucket'
+                - 'codebuild:CreateReportGroup'
+                - 'codebuild:CreateReport'
+                - 'codebuild:UpdateReport'
+                - 'codebuild:BatchPutTestCases'
+                - 'codebuild:BatchPutCodeCoverages'
+                - 'ecr:*'
+                Effect: Allow
+                Resource: '*'
+  
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: TWXIoTConnector
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source:
+        Type: S3
+        Location: !Sub ${S3Bucket}/${S3Folder}/
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:3.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: AWS_REGION
+            Value: !Sub ${AWS::Region}
+            Type: PLAINTEXT
+          - Name: AWS_ACCOUNT_NUMBER
+            Value: !Sub ${AWS::AccountId}
+            Type: PLAINTEXT
+          - Name: ECR_REPO_NAME
+            Value: !Ref ECRRepository
+            Type: PLAINTEXT
+      LogsConfig:
+        S3Logs:
+          EncryptionDisabled: true
+          Location: !Sub ${S3Bucket}/build_logs
+          Status: ENABLED
+
+#---------------------
+# Fargate
+#---------------------
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: TWX-Connector-Fargate-Cluster
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+  
+  ECSLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /TWXConnector/ecs/
+      RetentionInDays: 7
+  
+  ECSRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ECSTaskExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSIoTFullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonElastiCacheFullAccess'
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      Policies:
+        - PolicyName: AppConfigAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - appconfig:GetConfiguration
+                Resource: '*'
+  
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: "twx-cloud-connector-task"
+      ExecutionRoleArn: !GetAtt ECSRole.Arn
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      # 256 (.25 vCPU) - Available memory values: 0.5GB, 1GB, 2GB
+      # 512 (.5 vCPU) - Available memory values: 1GB, 2GB, 3GB, 4GB
+      # 1024 (1 vCPU) - Available memory values: 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB
+      # 2048 (2 vCPU) - Available memory values: Between 4GB and 16GB in 1GB increments
+      # 4096 (4 vCPU) - Available memory values: Between 8GB and 30GB in 1GB increments
+      Cpu: !Ref FargateCPU
+      # 0.5GB, 1GB, 2GB - Available cpu values: 256 (.25 vCPU)
+      # 1GB, 2GB, 3GB, 4GB - Available cpu values: 512 (.5 vCPU)
+      # 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB - Available cpu values: 1024 (1 vCPU)
+      # Between 4GB and 16GB in 1GB increments - Available cpu values: 2048 (2 vCPU)
+      # Between 8GB and 30GB in 1GB increments - Available cpu values: 4096 (4 vCPU)
+      Memory: !Ref FargateRAM
+      TaskRoleArn: !GetAtt ECSRole.Arn
+      RuntimePlatform:
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: twx-cloud-connector-container
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}:latest
+          Cpu: 1
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref ECSLogGroup
+              awslogs-stream-prefix: ecs
+
+#---------------------
+# Monitoring
+#---------------------
+  SNS:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: "AWSIoTConnectorSNSTopic"
+
+  MessageRouterLambdaCloudWatchErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "MessageRouterLambdaError"
+      ActionsEnabled: true
+      ComparisonOperator: GreaterThanThreshold
+      EvaluationPeriods: 1
+      Period: 300
+      Statistic: Sum
+      Threshold: 0
+      TreatMissingData: ignore
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref MessageRouterLambda
+      AlarmActions:
+        - !Ref SNS
+  
+  ThingworxDataFetcherLambdaCloudWatchErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "ThingworxDataFetcherLambdaError"
+      ActionsEnabled: true
+      ComparisonOperator: GreaterThanThreshold
+      EvaluationPeriods: 1
+      Period: 300
+      Statistic: Sum
+      Threshold: 0
+      TreatMissingData: ignore
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ThingworxDataFetcherLambda
+      AlarmActions:
+        - !Ref SNS
+  
+  FargateTaskStoppedEventRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: "AWSIoTConnectorFargateTaskStopped"
+      Description: "Event rule to catch the ECS Task State Change to STOPPED"
+      EventPattern: 
+        source: 
+          - "aws.ecs"
+        detail-type: 
+          - "ECS Task State Change"
+        detail: 
+          lastStatus: 
+            - "STOPPED"
+          group:
+            - "family:twx-cloud-connector-task"
+      State: "ENABLED"
+      Targets: 
+        - Arn: !Ref SNS
+          Id: "AWSIoTConnectorSNSTopic"
+
+#---------------------
+# Outputs
+#---------------------
+Outputs:
+  PrivateSubnets:
+    Description: A list of the private subnets
+    Value: !Join 
+      - ','
+      - - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+    Export:
+      Name: !Sub "${AWS::StackName}-${Environment}-PrivateSubnets"
+  PrivateSubnet1:
+    Description: A reference to the private subnet in the 1st Availability Zone
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub "${AWS::StackName}-${Environment}-PrivateSubnet1"
+  PrivateSubnet2:
+    Description: A reference to the private subnet in the 2nd Availability Zone
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub "${AWS::StackName}-${Environment}-PrivateSubnet2"
+  PrivateSubnet3:
+    Description: A reference to the private subnet in the 3rd Availability Zone
+    Value: !Ref PrivateSubnet3
+    Export:
+      Name: !Sub "${AWS::StackName}-${Environment}-PrivateSubnet3"
+  RedisEndpoint:
+    Description: Redis endpoint
+    Value: !Join 
+      - ''
+      - - 'redis://'
+        - !GetAtt Redis.ConfigurationEndPoint.Address
+        - ':'
+        - !GetAtt Redis.ConfigurationEndPoint.Port

@@ -1,0 +1,31 @@
+version: 0.2
+phases:
+  build:
+    commands:
+      - aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 489478819445.dkr.ecr.us-west-2.amazonaws.com/amazoncorretto
+      - docker build --pull -t ${ECR_REPO_NAME} .
+      - docker logout 489478819445.dkr.ecr.us-west-2.amazonaws.com/amazoncorretto
+      - DATE_TAG=$(date +'%Y-%b-%d')
+      - REPO_TAG=$DATE_TAG.$CODEBUILD_RESOLVED_SOURCE_VERSION
+  post_build:
+    commands:
+      - echo "attempting private repo:" ${AWS_ACCOUNT_NUMBER}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}
+      - aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_NUMBER}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}
+      - docker tag ${ECR_REPO_NAME}:latest ${AWS_ACCOUNT_NUMBER}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:scan
+      - docker push ${AWS_ACCOUNT_NUMBER}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:scan
+      - aws ecr wait image-scan-complete --region ${AWS_REGION} --repository-name ${ECR_REPO_NAME} --image-id imageTag=scan
+      - findings=`aws ecr describe-image-scan-findings --region ${AWS_REGION} --repository-name ${ECR_REPO_NAME} --image-id imageTag=scan --query 'length(imageScanFindings.findings[*])'`
+      - echo $findings
+      - |
+        if [ "$findings" -eq 0 ]; then
+          echo No findings in ECR scan. Pushing to latest
+          echo Tagging the scanned ECR to latest
+          docker tag ${ECR_REPO_NAME}:latest ${AWS_ACCOUNT_NUMBER}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:latest
+          echo Tagging the scanned ECR to a custom tag for rollback/maintenance
+          docker tag ${ECR_REPO_NAME}:latest ${AWS_ACCOUNT_NUMBER}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${REPO_TAG}
+          docker push ${AWS_ACCOUNT_NUMBER}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:latest
+          docker push ${AWS_ACCOUNT_NUMBER}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${REPO_TAG}
+        else
+          echo There were vunerlabilities in ECR repo
+          exit 1
+        fi

@@ -1,0 +1,27 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: >-
+  Lambda function reads Things from Thingworx, put them to redis and lunch new Fargate tasks each running an instance of Thingworx client connector application
+Resources:
+  ThingworxDataFetcherLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: pl.ttpsc.application.Application
+      Runtime: java11
+      CodeUri: .
+      Description: >-
+        Lambda function reads Things from Thingworx, put them to redis and lunch new Fargate tasks each running an instance of Thingworx client connector application.
+      MemorySize: 1024
+      Timeout: 900
+      Role: 'arn:aws:iam::703259868246:role/thingworxDataFetcherLambdaRole'
+      VpcConfig:
+        SecurityGroupIds:
+          - sg-0c64df88e50961f9a
+        SubnetIds:
+          - subnet-0cd1f7929876d33cf
+          - subnet-0172dcc5c9d6dd6bf
+          - subnet-00a12154ed0dafc4c
+      Environment:
+        Variables:
+          ENVIRONMENT: PROD
+          LOG_LEVEL: DEBUG
