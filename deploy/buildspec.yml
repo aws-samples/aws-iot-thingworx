@@ -2,9 +2,7 @@ version: 0.2
 phases:
   build:
     commands:
-      - aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 489478819445.dkr.ecr.us-west-2.amazonaws.com/amazoncorretto
       - docker build --pull -t ${ECR_REPO_NAME} .
-      - docker logout 489478819445.dkr.ecr.us-west-2.amazonaws.com/amazoncorretto
       - DATE_TAG=$(date +'%Y-%b-%d')
       - REPO_TAG=$DATE_TAG.$CODEBUILD_RESOLVED_SOURCE_VERSION
   post_build:
