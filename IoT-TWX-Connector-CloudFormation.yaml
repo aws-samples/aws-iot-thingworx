@@ -303,6 +303,46 @@ Resources:
       RouteTableId: !Ref PrivateRouteTable
       SubnetId: !Ref PrivateSubnet3
 ##################################### NETWORK END #####################################################
+
+  KMSEncryptionKey:
+    Type: 'AWS::KMS::Key'
+    Properties:
+      Description: An symmetric encryption KMS key for SNS and Kinesis
+      EnableKeyRotation: false
+      PendingWindowInDays: 7
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: key-default-thingworx-connector
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Allow access of the key
+            Effect: Allow
+            Principal:
+              AWS: 
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/MessageRouterLambdaRole'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/ThingworxDataFetcherLambdaRole/'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/TWXConnectorCodeBuildRole'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/ECSTaskExecutionRole'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/IoTTopicRole'
+            Action:
+              - 'kms:Describe*'
+              - 'kms:Enable*'
+              - 'kms:List*'
+              - 'kms:Put*'
+              - 'kms:Update*'
+              - 'kms:Get*'
+              - 'kms:DescribeKey'
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey'
+              - 'kms:GenerateDataKeyWithoutPlaintext'
+            Resource: '*'
   
   KinesisStream: 
     Type: AWS::Kinesis::Stream 
@@ -311,6 +351,9 @@ Resources:
       RetentionPeriodHours: 24
       StreamModeDetails:
         StreamMode: ON_DEMAND
+      StreamEncryption:
+        EncryptionType: KMS
+        KeyId: !Ref KMSEncryptionKey
 
   IoTTopicRuleRole:
     Type: AWS::IAM::Role
@@ -818,6 +861,7 @@ Resources:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: "AWSIoTConnectorSNSTopic"
+      KmsMasterKeyId : !Ref KMSEncryptionKey
 
   MessageRouterLambdaCloudWatchErrorAlarm:
     Type: AWS::CloudWatch::Alarm
