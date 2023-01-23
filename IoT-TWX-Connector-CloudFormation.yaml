@@ -344,6 +344,12 @@ Resources:
               - 'kms:GenerateDataKeyWithoutPlaintext'
             Resource: '*'
   
+  KMSEncryptionKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: 'alias/AWSIoTThingworxConnectorKey'
+      TargetKeyId: !Ref KMSEncryptionKey
+  
   KinesisStream: 
     Type: AWS::Kinesis::Stream 
     Properties: 
