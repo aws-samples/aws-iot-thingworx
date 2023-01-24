@@ -305,7 +305,7 @@ Resources:
 ##################################### NETWORK END #####################################################
 
   KMSEncryptionKey:
-    Type: 'AWS::KMS::Key'
+    Type: 'AWS::KMS::Key'    
     Properties:
       Description: An symmetric encryption KMS key for SNS and Kinesis
       EnableKeyRotation: false
@@ -324,11 +324,11 @@ Resources:
             Effect: Allow
             Principal:
               AWS: 
-                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/MessageRouterLambdaRole'
-                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/ThingworxDataFetcherLambdaRole/'
-                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/TWXConnectorCodeBuildRole'
-                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/ECSTaskExecutionRole'
-                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/IoTTopicRole'
+                - !GetAtt MessageRouterLambdaRole.Arn
+                - !GetAtt ThingworxDataFetcherLambdaRole.Arn
+                - !GetAtt CodeBuildRole.Arn
+                - !GetAtt ECSRole.Arn
+                - !GetAtt IoTTopicRuleRole.Arn
             Action:
               - 'kms:Describe*'
               - 'kms:Enable*'
@@ -343,6 +343,12 @@ Resources:
               - 'kms:GenerateDataKey'
               - 'kms:GenerateDataKeyWithoutPlaintext'
             Resource: '*'
+  
+  KMSEncryptionKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: 'alias/AWSIoTThingworxConnectorKey'
+      TargetKeyId: !Ref KMSEncryptionKey
   
   KinesisStream: 
     Type: AWS::Kinesis::Stream 
@@ -369,16 +375,21 @@ Resources:
             Action:
               - sts:AssumeRole
       Path: /
-      Policies:
-        - PolicyName: IoTTopicRulePolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              Effect: Allow
-              Action:
-                - kinesis:PutRecord
-              Resource: !GetAtt KinesisStream.Arn
-
+      
+  IoTTopicRuleRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref IoTTopicRuleRole
+      PolicyName: IoTTopicRulePolicy
+      PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            Effect: Allow
+            Action:
+              - kinesis:PutRecord
+            Resource: !GetAtt KinesisStream.Arn
+  
   IoTTopicRule:   
     Type: AWS::IoT::TopicRule
     Properties:
