@@ -75,7 +75,7 @@
         <dependency>
             <groupId>org.redisson</groupId>
             <artifactId>redisson</artifactId>
-            <version>3.16.8</version>
+            <version>3.22.0</version>
         </dependency>
         <dependency>
             <groupId>thingworkx-java-sdk</groupId>
